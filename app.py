@@ -2,49 +2,55 @@ import streamlit as st
 import sys
 import os
 
-# ---------- ADD CURRENT DIRECTORY TO PATH (CRITICAL FOR CLOUD DEPLOYMENT) ----------
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+# ---------- CRITICAL: FIX PATH RESOLUTION ----------
+# Get the absolute path to the root directory
+root_dir = os.path.dirname(os.path.abspath(__file__))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
-# Add simulators directory to path
-simulators_dir = os.path.join(current_dir, "simulators")
+# Add modules directory
+modules_dir = os.path.join(root_dir, "modules")
+if modules_dir not in sys.path:
+    sys.path.insert(0, modules_dir)
+
+# Add simulators directory
+simulators_dir = os.path.join(root_dir, "simulators")
 if simulators_dir not in sys.path:
     sys.path.insert(0, simulators_dir)
 
-# ---------- PAGE CONFIG - ONLY HERE ----------
+# ---------- PAGE CONFIG (MUST BE FIRST) ----------
 st.set_page_config(
     page_title="Queue Simulator Hub",
     layout="wide",
     initial_sidebar_state="auto"
 )
 
-# Import page modules SAFELY
+# ---------- IMPORT PAGES ----------
 try:
     from opd_sim import show as opd_show
-except ImportError as e:
-    st.error(f"Failed to import opd_sim: {e}")
+except Exception as e:
+    st.error(f"❌ Failed to import opd_sim: {str(e)}")
     st.stop()
 
 try:
     from simulators.mms import show as mms_show
-except ImportError as e:
-    st.error(f"Failed to import mms: {e}")
+except Exception as e:
+    st.error(f"❌ Failed to import mms: {str(e)}")
     st.stop()
 
 try:
     from simulators.mgs import show as mgs_show
-except ImportError as e:
-    st.error(f"Failed to import mgs: {e}")
+except Exception as e:
+    st.error(f"❌ Failed to import mgs: {str(e)}")
     st.stop()
 
 try:
     from simulators.ggs import show as ggs_show
-except ImportError as e:
-    st.error(f"Failed to import ggs: {e}")
+except Exception as e:
+    st.error(f"❌ Failed to import ggs: {str(e)}")
     st.stop()
 
-# Initialize session state for page
+# ---------- SESSION STATE ----------
 if 'page' not in st.session_state:
     st.session_state['page'] = 'opd'
 
@@ -52,19 +58,20 @@ if 'page' not in st.session_state:
 st.sidebar.title("Navigation")
 selection = st.sidebar.radio(
     "Select Page",
-    ["OPD Simulator", "M/M/S Simulator", "M/G/S Simulator", "G/G/S Simulator"]
+ ["OPD Simulator", "M/M/S Simulator", "M/G/S Simulator", "G/G/S Simulator"],
+    index=["opd", "mms", "mgs", "ggs"].index(st.session_state['page'])
 )
 
-# Map sidebar selection to page
-mapping = {
+# Map selection to page key
+page_map = {
     "OPD Simulator": "opd",
     "M/M/S Simulator": "mms",
     "M/G/S Simulator": "mgs",
     "G/G/S Simulator": "ggs"
 }
-st.session_state['page'] = mapping[selection]
+st.session_state['page'] = page_map[selection]
 
-# ---------- PAGE ROUTING ----------
+# ---------- RENDER SELECTED PAGE ----------
 if st.session_state['page'] == 'opd':
     opd_show()
 elif st.session_state['page'] == 'mms':
