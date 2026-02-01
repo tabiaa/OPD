@@ -47,7 +47,7 @@ def show():
 
         # Generate cumulative probabilities until CP reaches or exceeds 1
         max_entries = 500  # Set an upper limit to prevent overflow
-        while prev_cp < 0.9999 and num_entries < max_entries:
+        while prev_cp < 0.999999 and num_entries < max_entries:
             cp = calculate_CP(num_entries, lambda_rate, prev_cp)
             cp_values.append(cp)
             prev_cp = cp
@@ -56,13 +56,18 @@ def show():
             num_entries += 1
 
         cp_values.append(1)  # Ensure cumulative probability ends at 1
-        labels = [f"{cp_values[i]:.4f}-{cp_values[i+1]:.4f}" for i in range(len(cp_values) - 1)]
 
         df = pd.DataFrame({
             "Customer": customers,
             "Cumulative Probability": cp_values[:-1],
             "Service Time": service_times
         })
+
+        # Format cumulative probability to 6 decimals
+        df["Cumulative Probability"] = df["Cumulative Probability"].apply(lambda x: float(f"{x:.6f}"))
+
+        # Create CP Lookup column (shifted cumulative probability, first row = 0)
+        df["CP Lookup"] = [0] + df["Cumulative Probability"].tolist()[:-1]
 
         # Generate inter-arrival and arrival times
         arrival = 0
@@ -123,7 +128,20 @@ def show():
             st.warning("No rows where 'Cumulative Probability' is approximately 1.")
         
         st.write("### Simulation Results")
-        st.dataframe(df.drop(["Cumulative Probability"],axis=1), hide_index=True)
+        st.dataframe(df[[
+            "Customer",
+            "CP Lookup",
+            "Cumulative Probability",
+            "Inter Arrival Time",
+            "Arrival Time",
+            "Service Time",
+            "Start Time",
+            "End Time",
+            "Server",
+            "Turn Around Time",
+            "Wait Time",
+            "Response Time"
+        ]], hide_index=True)
 
         avg_interarrival = df["Inter Arrival Time"].mean()
         avg_service = df["Service Time"].mean()

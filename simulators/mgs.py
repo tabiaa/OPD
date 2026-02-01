@@ -14,9 +14,9 @@ def show():
         meu = (meuMin + meuMax) / 2
         s_no = []
         cp = []
-        cpl = [0]
-        int_arrival = [0]
-        arrival = [0]
+        cpl = [0]  # CP Lookup starts with 0
+        int_arrival = []
+        arrival = []
         service = []
         TA = []
         WT = []
@@ -24,53 +24,60 @@ def show():
         server_assigned = []
         start_times = []
         end_times = []
-        value = 0
 
-        # Generating serial numbers and probabilities
+        # Generate cumulative probability
         x = 0
-        while cpl[-1] < 1:
+        cum_prob = 0
+        while cum_prob < 0.999999:
             s_no.append(x)
-            value = value + (((math.exp(-lembda)) * (lembda ** x)) / math.factorial(x))
-            cp.append(float("%.4f" % value))
-            cpl.append(cp[-1])
+            cum_prob += (math.exp(-lembda) * (lembda ** x)) / math.factorial(x)
+            cp.append(round(cum_prob, 6))
+            cpl.append(round(cp[-1], 6))
             x += 1
-        cpl.pop(-1)
+        cpl.pop(-1)  # remove last extra element
 
-        # Inter-arrival time generation
-        for i in range(len(cp)-1):
-            ran_var = float("%.4f" % random.uniform(0, 1))
-            for j in range(len(cp)):
-                if cpl[j] < ran_var and ran_var < cp[j]:
+        num_customers = len(s_no)
+
+        # Inter-arrival times using CP Lookup
+        for i in range(num_customers):
+            ran_var = random.uniform(0, 1)
+            for j in range(num_customers):
+                if cpl[j] <= ran_var < cp[j]:
                     int_arrival.append(j)
+                    break
+        if len(int_arrival) < num_customers:
+            int_arrival.append(0)  # padding if needed
 
-        # Arrival time generation
-        for i in range(1, len(cp)):
-            arrival.append(int_arrival[i] + arrival[i - 1])
+        # Arrival times
+        arrival.append(0)
+        for i in range(1, num_customers):
+            arrival.append(arrival[i - 1] + int_arrival[i])
 
-        # Service time generation
-        for i in range(len(cp)):
+        # Service times
+        for i in range(num_customers):
             service.append(math.ceil(-meu * math.log(random.uniform(0, 1))))
 
-        # Server assignments
+        # Server assignment
         ends = [0] * n
-        for i in range(len(cp)):
-            min_end_time_server = min(range(n), key=lambda x: ends[x])
-            start_time = max(arrival[i], ends[min_end_time_server])
+        for i in range(num_customers):
+            min_server = min(range(n), key=lambda x: ends[x])
+            start_time = max(arrival[i], ends[min_server])
             end_time = start_time + service[i]
-            ends[min_end_time_server] = end_time
-            server_assigned.append(min_end_time_server)
+            ends[min_server] = end_time
+            server_assigned.append(min_server)
             start_times.append(start_time)
             end_times.append(end_time)
 
-        # Calculate turnaround time, wait time, and response time
-        for i in range(len(cp)):
+        # Calculate TA, WT, RT
+        for i in range(num_customers):
             TA.append(end_times[i] - arrival[i])
-            WT.append(TA[-1] - service[i])
+            WT.append(TA[i] - service[i])
             RT.append(start_times[i] - arrival[i])
 
-        # Create result DataFrame
+        # Create DataFrame
         result = pd.DataFrame({
             "Customer": s_no,
+            "CP Lookup": cpl,
             "Cumulative Probability": cp,
             "Inter Arrival Time": int_arrival,
             "Arrival Time": arrival,
@@ -82,6 +89,7 @@ def show():
             "Response Time": RT,
             "Wait Time": WT
         })
+
         return result
 
     # Input fields
@@ -94,16 +102,10 @@ def show():
     if st.button("Generate Simulation"):
         df = mgn(lambda_value, meu_min, meu_max, num_servers)
 
-        # Truncate DataFrame based on Cumulative Probability
-        if (np.isclose(df['Cumulative Probability'], 1, atol=1e-4)).any():
-            first_index = df[np.isclose(df['Cumulative Probability'], 1, atol=1e-4)].index[0]
-            df = df.iloc[:first_index + 1]
-        else:
-            st.warning("No rows where 'Cumulative Probability' equals 1. Using the entire DataFrame.")
-
         st.write("### Simulation Results")
-        st.dataframe(df.drop(["Cumulative Probability"],axis=1), hide_index=True)
+        st.dataframe(df, hide_index=True)
 
+        # Averages
         avg_interarrival = df["Inter Arrival Time"].mean()
         avg_service = df["Service Time"].mean()
         avg_TA = df["Turn Around Time"].mean()
