@@ -62,7 +62,26 @@ def show():
     # ---------- MAIN ----------
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
+        original_len = len(df)
         df = df.dropna(subset=["InterArrival (Min)", "Duration (Min)"])
+        cleaned_len = len(df)
+
+        # ---------- DATA PREVIEW ----------
+        st.subheader("Uploaded Data Preview")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            max_rows = min(100, len(df))
+            rows_to_show = st.slider("Number of rows to display", min_value=10, max_value=max_rows, value=min(10, max_rows), step=10)
+        
+        with col2:
+            st.info(f"Total records: {original_len} → {cleaned_len} (after cleanup)")
+        
+        st.dataframe(df.head(rows_to_show), use_container_width=True)
+        
+        # Optional: Show column info
+        with st.expander("📋 Column Information"):
+            st.write(df.dtypes.to_frame("Data Type"))
 
         inter_arrival = df["InterArrival (Min)"].values
         service = df["Duration (Min)"].values
@@ -113,7 +132,7 @@ Queue Model: **M/M/1**
 χ² = {chi_a:.2f}  
 df = {df_a}  
 critical = {crit_a:.2f}  
-Result: {'Accepted' if acc_a else 'Rejected'}
+Result: {'Accepted' if acc_a else '❌ Rejected'}
 """
         )
 
@@ -123,7 +142,7 @@ Result: {'Accepted' if acc_a else 'Rejected'}
 χ² = {chi_s:.2f}  
 df = {df_s}  
 critical = {crit_s:.2f}  
-Result: {'Accepted' if acc_s else 'Rejected'}
+Result: {'Accepted' if acc_s else '❌ Rejected'}
 """
         )
 
@@ -140,48 +159,113 @@ Result: {'Accepted' if acc_s else 'Rejected'}
 
         st.pyplot(fig)
 
-        # ---------- SIMULATION ----------
-        st.subheader("Future Customer Simulation")
-        st.markdown(
-            """
-Simulate future OPD customers using the M/M/1 queue model.
-"""
-        )
+        # ---------- MONTE CARLO SIMULATION (ONLY IF BOTH TESTS ACCEPTED) ----------
+        if acc_a and acc_s:
+            st.success("Both distributions validated! Monte Carlo simulation available.")
+            
+            st.subheader("Monte Carlo Simulation with CP Lookup")
+            st.markdown("""
+            Simulate future OPD customers using Monte Carlo method.  
+            **Note:** Row 1 = System start (I.A = 0, Arrival = 0). Actual patients start from Row 2.
+            """)
+            
+            n_sim = st.number_input("Number of future patients to simulate (excluding system start row)", 1, 1000, 10)
 
-        n_sim = st.number_input("Number of future patients to simulate", 1, 1000, 10)
+            if st.button("Run Monte Carlo Simulation"):
+                # Initialize lists for all columns
+                ids = []
+                cp_values = []
+                cp_lookup_values = []
+                ia_values = []
+                poisson_arrivals = []
+                service_times_list = []
+                start_times = []
+                end_times = []
+                tat_values = []
+                wt_values = []
+                rt_values = []
 
-        if st.button("Run Simulation"):
-            # arrivals in minutes using per-minute λ
-            arrivals = np.cumsum(np.random.exponential(1 / lam_per_min, n_sim))
-            services = np.random.exponential(1 / mu_hat, n_sim)
+                n_total = n_sim  # number of actual patients
 
-            start, end, wait = [], [], []
-            server_free = 0
+                current_time = 0.0
+                server_free = 0.0
 
-            for i in range(n_sim):
-                s = max(arrivals[i], server_free)
-                e = s + services[i]
-                start.append(s)
-                end.append(e)
-                wait.append(s - arrivals[i])
-                server_free = e
+                for i in range(n_total):
+                    ids.append(i + 1)
+                    
+                    # CP value (just random for simulation)
+                    cp = np.random.rand()
+                    cp_values.append(cp)
+                    
+                    # CP Lookup = previous CP, for first row = 0
+                    cp_lookup_values.append(cp_values[i - 1] if i > 0 else 0.0)
+                    
+                    # Inter-arrival time (exponential)
+                    ia = -mu_hat * np.log(np.random.rand())
+                    ia_values.append(ia if i > 0 else 0.0)  # first I.A = 0
+                    
+                    # Poisson arrival = cumulative sum of inter-arrivals
+                    current_time += ia if i > 0 else 0.0
+                    poisson_arrivals.append(current_time)  # first arrival = 0
+                    
+                    # Service time
+                    service_time = -mu_hat * np.log(np.random.rand())
+                    service_times_list.append(service_time)
+                    
+                    # Start and end times
+                    start = max(current_time, server_free)
+                    end = start + service_time
+                    start_times.append(start)
+                    end_times.append(end)
+                    
+                    # Turnaround, waiting, response
+                    tat = end - current_time
+                    wt = start - current_time
+                    rt = start - current_time
+                    tat_values.append(tat)
+                    wt_values.append(wt)
+                    rt_values.append(rt)
+                    
+                    # Update server free
+                    server_free = end
 
-            sim_df = pd.DataFrame({
-                "Patient": range(1, n_sim + 1),
-                "Arrival Time (min)": arrivals,
-                "Service Start (min)": start,
-                "Service End (min)": end,
-                "Waiting Time (min)": wait
-            }).round(2)
+                # Build DataFrame
+                sim_df = pd.DataFrame({
+                    "ID": ids,
+                    "CP": np.round(cp_values, 4),
+                    "CP Lookup": np.round(cp_lookup_values, 4),
+                    "I.A": np.round(ia_values, 2),
+                    "Poisson Arrival": np.round(poisson_arrivals, 2),
+                    "Service Time": np.round(service_times_list, 2),
+                    "Start": np.round(start_times, 2),
+                    "End": np.round(end_times, 2),
+                    "T.A.T": np.round(tat_values, 2),
+                    "W.T": np.round(wt_values, 2),
+                    "R.T": np.round(rt_values, 2)
+                })
 
-            st.dataframe(sim_df, use_container_width=True)
 
-            # Download
-            output = BytesIO()
-            sim_df.to_excel(output, index=False)
-            st.download_button(
-                "Download Simulation Results",
-                data=output.getvalue(),
-                file_name="opd_simulation.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+
+                st.dataframe(sim_df, use_container_width=True)
+
+                # Download button
+                output = BytesIO()
+                sim_df.to_excel(output, index=False)
+                st.download_button(
+                    "📥 Download Simulation Results (Excel)",
+                    data=output.getvalue(),
+                    file_name="opd_monte_carlo_simulation.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                
+                # Summary statistics (exclude row 1 which is system start)
+                st.subheader("Simulation Summary (Actual Patients Only)")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Patients", n_sim)
+                col2.metric("Avg. Waiting Time", f"{np.mean(wt_values[1:]):.2f} min")
+                col3.metric("Avg. Turnaround Time", f"{np.mean(tat_values[1:]):.2f} min")
+                col4.metric("Server Utilization", f"{rho:.1%}")
+        else:
+            st.warning("Simulation requires both distributions to pass goodness-of-fit tests. Please review your data or adjust significance level.")
+    else:
+        st.info("Please upload an Excel file containing OPD data with columns 'InterArrival (Min)' and 'Duration (Min)'")
